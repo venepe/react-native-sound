@@ -9,7 +9,15 @@
 @implementation RNSound {
   NSMutableDictionary* _playerPool;
   NSMutableDictionary* _callbackPool;
+  Waveform* _waveform;
+  BOOL _isWaveformEnabled;
+  BOOL _isProgressEnabled;
+  NSTimer* _progressTimer;
+  NSTimer* _waveformTimer;
 }
+
+float _waveformUpdateInterval = 0.150f;
+float _progressUpdateInterval = 1.000f;
 
 -(NSMutableDictionary*) playerPool {
   if (!_playerPool) {
@@ -54,6 +62,10 @@
   }
 }
 
+-(void)didUpdateWaveform:(int)intensity {
+  [self sendEventWithName:@"OnWaveform" body:@{@"intensity": [NSNumber numberWithInt:intensity]}];
+}
+
 RCT_EXPORT_MODULE();
 
 -(NSDictionary *)constantsToExport {
@@ -63,6 +75,11 @@ RCT_EXPORT_MODULE();
            @"NSLibraryDirectory": [self getDirectory:NSLibraryDirectory],
            @"NSCachesDirectory": [self getDirectory:NSCachesDirectory],
            };
+}
+
+- (NSArray<NSString *> *)supportedEvents
+{
+  return @[@"OnWaveform", @"OnProgress"];
 }
 
 RCT_EXPORT_METHOD(enable:(BOOL)enabled) {
@@ -86,7 +103,7 @@ RCT_EXPORT_METHOD(setCategory:(NSString *)categoryName
     category = AVAudioSessionCategoryRecord;
   } else if ([categoryName isEqual: @"PlayAndRecord"]) {
     category = AVAudioSessionCategoryPlayAndRecord;
-  } 
+  }
   #if TARGET_OS_IOS
   else if ([categoryName isEqual: @"AudioProcessing"]) {
       category = AVAudioSessionCategoryAudioProcessing;
@@ -116,20 +133,20 @@ RCT_EXPORT_METHOD(prepare:(NSString*)fileName withKey:(nonnull NSNumber*)key
   NSError* error;
   NSURL* fileNameUrl;
   AVAudioPlayer* player;
-  
+
   if ([fileName hasPrefix:@"http"]) {
     fileNameUrl = [NSURL URLWithString:[fileName stringByRemovingPercentEncoding]];
   }
   else {
     fileNameUrl = [NSURL fileURLWithPath:[fileName stringByRemovingPercentEncoding]];
   }
-    
+
   if (fileNameUrl) {
     player = [[AVAudioPlayer alloc]
               initWithData:[[NSData alloc] initWithContentsOfURL:fileNameUrl]
               error:&error];
   }
-    
+
   if (player) {
     player.delegate = self;
     player.enableRate = YES;
@@ -147,6 +164,22 @@ RCT_EXPORT_METHOD(play:(nonnull NSNumber*)key withCallback:(RCTResponseSenderBlo
   if (player) {
     [[self callbackPool] setObject:[callback copy] forKey:key];
     [player play];
+
+    if (_isWaveformEnabled) {
+      [player setMeteringEnabled:YES];
+      [_waveformTimer invalidate];
+      _waveform = [[Waveform alloc] init];
+      _waveform.audioPlayer = player;
+      _waveform.delegate = self;
+      _waveformTimer = [NSTimer timerWithTimeInterval:_waveformUpdateInterval target:self selector:@selector(updateWaveform) userInfo:nil repeats:YES];
+      [[NSRunLoop mainRunLoop] addTimer:_waveformTimer forMode:NSRunLoopCommonModes];
+    }
+
+    if (_isProgressEnabled) {
+      [_progressTimer invalidate];
+      _progressTimer = [NSTimer timerWithTimeInterval:_progressUpdateInterval target:self selector:@selector(updateProgress:) userInfo:player repeats:YES];
+      [[NSRunLoop mainRunLoop] addTimer:_progressTimer forMode:NSRunLoopCommonModes];
+    }
   }
 }
 
@@ -218,6 +251,25 @@ RCT_EXPORT_METHOD(getCurrentTime:(nonnull NSNumber*)key
   } else {
     callback(@[@(-1), @(false)]);
   }
+}
+
+RCT_EXPORT_METHOD(enableWaveform:(BOOL)enabled) {
+    _isWaveformEnabled = enabled;
+}
+
+RCT_EXPORT_METHOD(enableProgress:(BOOL)enabled) {
+    _isProgressEnabled = enabled;
+}
+
+-(void) updateWaveform {
+  [_waveform update];
+}
+
+-(void) updateProgress:(NSTimer *)timer {
+    AVAudioPlayer* player = [timer userInfo];
+    if (player) {
+        [self sendEventWithName:@"OnProgress" body:@{@"progress": [NSNumber numberWithDouble:[player currentTime]]}];
+    }
 }
 
 @end

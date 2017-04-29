@@ -5,7 +5,9 @@
 #endif
 
 #import <AVFoundation/AVFoundation.h>
+#import <React/RCTEventEmitter.h>
+#import "Waveform.h"
 
-@interface RNSound : NSObject <RCTBridgeModule, AVAudioPlayerDelegate>
+@interface RNSound : RCTEventEmitter <RCTBridgeModule, AVAudioPlayerDelegate, WaveformDelegate>
 
 @end

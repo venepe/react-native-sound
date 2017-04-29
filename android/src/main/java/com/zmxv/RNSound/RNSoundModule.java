@@ -1,28 +1,42 @@
 package com.zmxv.RNSound;
 
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
+import android.media.audiofx.Visualizer;
 import android.net.Uri;
-import android.media.AudioManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactApplicationContext;
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.io.IOException;
-import android.util.Log;
 
 public class RNSoundModule extends ReactContextBaseJavaModule {
   Map<Integer, MediaPlayer> playerPool = new HashMap<>();
   ReactApplicationContext context;
   final static Object NULL = null;
+  Visualizer audioOutput = null;
+  double intensity = 0;
+  boolean isWaveformEnabled;
+  boolean isProgressEnabled;
+  Handler handler = new Handler(Looper.getMainLooper());
+  int waveformDelay = 150;
+  int progressDelay = 1000;
+  Runnable waveformRunnable;
+  Runnable progressRunnable;
 
   public RNSoundModule(ReactApplicationContext context) {
     super(context);
@@ -34,6 +48,14 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     return "RNSound";
   }
 
+  private void sendEvent(ReactContext reactContext,
+                         String eventName,
+                         WritableMap params) {
+    reactContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+            .emit(eventName, params);
+  }
+
   @ReactMethod
   public void prepare(final String fileName, final Integer key, final Callback callback) {
     MediaPlayer player = createMediaPlayer(fileName);
@@ -43,6 +65,8 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
       e.putString("message", "resource not found");
       callback.invoke(e);
       return;
+    } else {
+      player.stop();
     }
     try {
       player.prepare();
@@ -89,7 +113,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void play(final Integer key, final Callback callback) {
-    MediaPlayer player = this.playerPool.get(key);
+    final MediaPlayer player = this.playerPool.get(key);
     if (player == null) {
       callback.invoke(false);
       return;
@@ -113,6 +137,27 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
       }
     });
     player.start();
+
+    if (isWaveformEnabled) {
+      createVisualizer();
+      handler.postDelayed(new Runnable() {
+        public void run() {
+          waveformRunnable = this;
+          updateWaveform();
+          handler.postDelayed(waveformRunnable, waveformDelay);
+        }
+      }, waveformDelay);
+    }
+
+    if (isProgressEnabled) {
+      handler.postDelayed(new Runnable() {
+        public void run() {
+          progressRunnable = this;
+          updateProgress(player);
+          handler.postDelayed(progressRunnable, progressDelay);
+        }
+      }, progressDelay);
+    }
   }
 
   @ReactMethod
@@ -120,6 +165,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     MediaPlayer player = this.playerPool.get(key);
     if (player != null && player.isPlaying()) {
       player.pause();
+      releaseEventListeners();
     }
   }
 
@@ -129,6 +175,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     if (player != null && player.isPlaying()) {
       player.pause();
       player.seekTo(0);
+      releaseEventListeners();
     }
   }
 
@@ -161,7 +208,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   public void setCurrentTime(final Integer key, final Float sec) {
     MediaPlayer player = this.playerPool.get(key);
     if (player != null) {
-      player.seekTo((int)Math.round(sec * 1000));
+      player.seekTo((int) Math.round(sec * 1000));
     }
   }
 
@@ -186,4 +233,51 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     constants.put("IsAndroid", true);
     return constants;
   }
+
+  @ReactMethod
+  public void enableWaveform(final Boolean enabled) {
+    isWaveformEnabled = enabled;
+  }
+
+  @ReactMethod
+  public void enableProgress(final Boolean enabled) {
+    isProgressEnabled = enabled;
+  }
+
+  private void createVisualizer(){
+    int rate = Visualizer.getMaxCaptureRate();
+    audioOutput = new Visualizer(0);
+    audioOutput.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
+      @Override
+      public void onWaveFormDataCapture(Visualizer visualizer, byte[] waveform, int samplingRate) {
+        float level = ((float) waveform[0] + 128f) / 256;
+        intensity = level * 100;
+      }
+
+      @Override
+      public void onFftDataCapture(Visualizer visualizer, byte[] fft, int samplingRate) {
+
+      }
+    }, rate, true, false);
+    audioOutput.setEnabled(true);
+  }
+
+  private void updateWaveform() {
+    WritableMap params = Arguments.createMap();
+    params.putInt("intensity", (int) intensity);
+    sendEvent(getReactApplicationContext(), "OnWaveform", params);
+  }
+
+  private void updateProgress(MediaPlayer player) {
+    WritableMap params = Arguments.createMap();
+    params.putDouble("progress", player.getCurrentPosition() * .001);
+    sendEvent(getReactApplicationContext(), "OnProgress", params);
+  }
+
+  private void releaseEventListeners() {
+    handler.removeCallbacks(progressRunnable);
+    handler.removeCallbacks(waveformRunnable);
+    audioOutput.release();
+  }
+
 }

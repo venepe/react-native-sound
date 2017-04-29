@@ -3,6 +3,7 @@
 var RNSound = require('react-native').NativeModules.RNSound;
 var IsAndroid = RNSound.IsAndroid;
 var IsWindows = RNSound.IsWindows;
+var NativeEventEmitter = require("react-native/Libraries/EventEmitter/NativeEventEmitter");
 var resolveAssetSource = require("react-native/Libraries/Image/resolveAssetSource");
 var nextKey = 0;
 
@@ -178,6 +179,30 @@ Sound.setCategory = function(value, mixWithOthers = false) {
     RNSound.setCategory(value, mixWithOthers);
   }
 };
+
+Sound.enableWaveform = function(enabled) {
+  RNSound.enableWaveform(enabled);
+};
+
+Sound.enableProgress = function(enabled) {
+  RNSound.enableProgress(enabled);
+};
+
+Sound.onWaveform = function(callback) {
+  const RNSoundEventEmitter = new NativeEventEmitter(RNSound);
+  const listener = RNSoundEventEmitter.addListener(
+    'OnWaveform',
+    (payload) => { callback(payload); },
+  );
+}
+
+Sound.onProgress = function(callback) {
+  const RNSoundEventEmitter = new NativeEventEmitter(RNSound);
+  const listener = RNSoundEventEmitter.addListener(
+    'OnProgress',
+    (payload) => { callback(payload); },
+  );
+}
 
 Sound.MAIN_BUNDLE = RNSound.MainBundlePath;
 Sound.DOCUMENT = RNSound.NSDocumentDirectory;
