@@ -246,6 +246,9 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
 
   private void createVisualizer(){
     int rate = Visualizer.getMaxCaptureRate();
+    if (audioOutput != null) {
+      audioOutput.release();
+    }
     audioOutput = new Visualizer(0);
     audioOutput.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
       @Override
@@ -277,7 +280,6 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   private void releaseEventListeners() {
     handler.removeCallbacks(progressRunnable);
     handler.removeCallbacks(waveformRunnable);
-    audioOutput.release();
   }
 
 }
